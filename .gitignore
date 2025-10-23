@@ -1,0 +1,33 @@
+# Arquivos de Projeto Pessoal
+roteiro.md
+documentacao.md
+readme.md2zone.identifier
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+venv/
+.venv/
+
+# Sistema e IDE
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+*zone.identifier
+
+# Logs
+# Ignora a pasta de logs do Airflow e quaisquer arquivos .log
+airflow-environment/logs/
+*.log
+
+# Segredos e Configurações
+# Ignora TODOS os arquivos .env em qualquer pasta
+**/.env
+
+# Ignora a pasta de credenciais (boa prática, embora as nossas estejam no Airflow)
+marketpulse_project/credentials/
+
+# Dependências (se você as instalasse localmente)
+/requirements.txt.lock
