@@ -42,13 +42,14 @@ with DAG(
     schedule="@daily", # Executa uma vez por dia, logo após a meia-noite
     catchup=False,
     doc_md="""
-    ### MarketPulse Data Ingestion DAG
-    Esta DAG orquestra a ingestão de dados para a camada Bronze.
-    - **Task 1 (Docker):** Extrai dados de Ações (API) e salva no S3.
-    - **Task 2 (Python):** Extrai dados de Notícias (MongoDB) e salva no S3.
-    - As tasks rodam em paralelo.
+    ### Pipeline ELT Marketpulse (Bronze -> Gold)
+    Esta DAG orquestra o pipeline completo de ingestão e transformação.
+    - E (Extract): Tasks 1 e 2 rodam em paralelo para extrair dados da API e do Mongo
+    - L (Load): As mesmas tasks salvam os dados brutos no S3 (camada bronze).
+    - T (Transform): Task 3 roda o job Spark (em docker) para transformar os dados da
+    camada Bronze para as camadas Silver/Gold.
     """,
-    tags=["marketpulse", "ingestion", "bronze", "pipeline_1"],
+    tags=["projeto_marketpulse", "spark", "elt", "pipeline_1"],
 ) as dag:
     # --- Task 1: Extração de ações (API -> S3)
     # --- Definição da Tarefa ---
@@ -137,9 +138,22 @@ with DAG(
             logging.error(f"Erro inesperado ao salvar no S3: {e}")
             raise
     
-    # Fim da nova task
+    # --- Instanciação da Task 2 ---
+    # Aqui vamos "chamar" a função para que ela se torne uma task
+    extract_news_to_bronze_task = extract_news_to_bronze()
+
+    # --- Task 3 (NOVA): Transformaçõ Spark (S3 bronze -> S3 gold)
+    # 1. Copiando o dicionário de ambiente principal
+
+    transform_bronze_to_gold = DockerOperator(
+        task_id = "transform_bronze_to_gold",
+        image = "marketpulse-transformer:latest", # <-- A imagem que acabamos de buildar 
+        auto_remove = True,
+        environment = env_vars_from_airflow, # <-- Passa as chaves da aws
+        docker_url="unix://var/run/docker.sock",
+        network_mode="bridge" # <-- Usa a rede 'bridge' para acesso a internet para baixar jars do S3
+    )
 
     # --- Orquestração ---
-    # Instancia a nova task. Como ela não tem dependencias (>> ou <<)
-    # com a 'extract_task_stocks', o Airflow irá executá-las em paralelo.
-    extract_news_to_bronze()
+    # Configura a Task 3 para rodar apenas depois que as tasks 1 e 2 terminarem com sucesso.
+    [extract_task_stocks, extract_news_to_bronze_task] >> transform_bronze_to_gold
