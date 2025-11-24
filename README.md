@@ -1,122 +1,158 @@
 # Projeto MarketPulse: Pipeline de Engenharia de Dados
 
-Este repositório contém um projeto completo de pipeline de engenharia de dados (ELT) de ponta a ponta. O objetivo aqui é simular um ambiente de produção real para a ingestão, processamento e monitoramento de dados do mercado financeiro (ações e notícias), utilizando uma stack de ferramentas moderno e totalmente orquestrado.
+Este repositório contém um projeto completo de pipeline de engenharia de dados (ELT) de ponta a ponta. O objetivo é simular um ambiente de produção real para a ingestão, processamento, monitoramento e visualização de dados do mercado financeiro (ações e notícias), utilizando uma stack de ferramentas modernas e totalmente orquestrada.
 
 O projeto é 100% "containerizado" usando Docker, permitindo total portabilidade e reprodutibilidade.
 
 ## 🚀 Conceito do Projeto
 O **MarketPulse** captura dois tipos de dados de fontes distintas:
 
-   1. Dados Estruturados: Cotações diárias de ações (OHLCV - Open, High, Low, Close, Volume) da B3 (ex: PETR4) através da API Alpha Vantage.
+1.  **Dados Estruturados:** Cotações diárias de ações (OHLCV - Open, High, Low, Close, Volume) da B3 (ex: PETR4) através da API Alpha Vantage.
+2.  **Dados Não Estruturados:** Manchetes de notícias do mercado financeiro, coletadas via web scraping do portal InfoMoney e armazenadas em um banco MongoDB.
 
-   2. Dados Não Estruturados: Manchetes de notícias do mercado financeiro, coletadas via web scraping do portal InfoMoney e armazenadas em um banco MongoDB.
-
-O objetivo final é mover esses dados brutos através de um Data Lake (AWS S3) e transformá-los em tabelas limpas e agregadas, prontas para consumo analítico e de Business Intelligence.
+O objetivo final é mover esses dados brutos através de um Data Lake (AWS S3), transformá-los com Spark e disponibilizá-los em um Data Warehouse (PostgreSQL) para consumo analítico no Power BI.
 
 ## 🏛️ Arquitetura e Fluxo de Dados
 O pipeline segue a arquitetura Medallion (Bronze, Silver, Gold), orquestrada pelo Apache Airflow.
 
 **1. Fontes de Dados (Source)**
-   * API de Ações: Alpha Vantage (Dados estruturados).
-
-   * MongoDB: Populado por um script de web scraping (BeautifulSoup + requests) que busca notícias do InfoMoney (Dados não estruturados).
+* **API de Ações:** Alpha Vantage (Dados estruturados).
+* **MongoDB:** Populado por um script de web scraping customizado (BeautifulSoup + requests) que busca notícias do InfoMoney.
 
 **2. Orquestração (Apache Airflow)**
-O coração do projeto, rodando em Docker (com CeleryExecutor, Redis e Postgres). Ele gerencia dois pipelines principais:
+O coração do projeto, rodando em Docker. Ele gerencia dois pipelines principais:
 
-   * **Pipeline I** (marketpulse_data_ingestion): DAG de ingestão principal (ELT), agendada diariamente.
+* **Pipeline I (`marketpulse_data_ingestion`):** DAG principal de ELT, agendada diariamente.
+    * `extract_stocks_to_bronze` (DockerOperator): Roda uma imagem Docker customizada para buscar dados da API e salvá-los na Camada Bronze (S3).
+    * `extract_news_to_bronze` (PythonOperator): Lê notícias do MongoDB (via pymongo) e salva o JSON bruto na Camada Bronze (S3).
+    * `transform_bronze_to_gold` (DockerOperator): A etapa de transformação (T). Dispara um contêiner **Apache Spark** (imagem oficial `apache/spark`) que executa um job PySpark para processar os dados Bronze -> Silver -> Gold.
+    * `load_gold_to_postgres` (PythonOperator): A etapa final de carga. Lê as tabelas Delta Lake da camada Gold no S3 e as carrega no banco de dados PostgreSQL (Datalab) para consumo.
 
-      * extract_stocks_to_bronze (DockerOperator): Uma task que roda uma imagem Docker customizada para buscar dados da API de ações e salvá-los como JSON bruto na Camada Bronze (AWS S3).
-
-      * extract_news_to_bronze (PythonOperator): Uma task (em paralelo) que lê os dados de notícias do MongoDB (via pymongo) e salva o JSON bruto na Camada Bronze (AWS S3).
-
-      * transform_bronze_to_gold (DockerOperator): A etapa de transformação (T). Após a ingestão, esta task dispara um contêiner Apache Spark (bitnami/spark) que executa um script PySpark. (NOVA FEATURE)
-
-   * **Pipeline II** (weekly_source_volume_monitoring): DAG de monitoramento e Data Quality, agendada semanalmente.
-
-      * get_api_volume / get_mongodb_volume (PythonOperators): Tasks que se conectam diretamente às fontes (API e Mongo) para contar o número de registros disponíveis na origem.
-
-      * store_volume_metrics (PostgresHook): Armazena essas contagens em um banco de dados PostgreSQL de metadados, permitindo o acompanhamento da volumetria e detecção de anomalias.
+* **Pipeline II (`weekly_source_volume_monitoring`):** DAG de monitoramento e Data Quality.
+    * `get_api_volume` / `get_mongodb_volume`: Conectam-se às fontes originais para aferir a volumetria real.
+    * `store_volume_metrics`: Armazena metadados de volumetria no PostgreSQL para auditoria.
 
 **3. Ingestão (Camada Bronze - AWS S3)**
-   * Os dados brutos (JSONs da API e do Mongo) são armazenados no AWS S3 sem modificação, particionados por data e tipo de dado (ex: s3://.../stock_data/ e s3://.../news_data/).
+* Os dados brutos (JSONs) são armazenados no AWS S3 sem modificação, particionados por data (ex: `s3://.../stock_data/` e `s3://.../news_data/`).
 
-**4. Transformação (Spark - Camadas Silver e Gold)**  
-O Objetivo aqui era utilizar os recursos do Databricks para ler os arquivos JSON da camada bronze, transformá-los e salvá-los de volta no S3 em camadas otimizadas (Silver e Gold), porém com mudanças da versão Community Edition para o novo Free Tier do databricks, ocorreu limitações nas permissões para acessar os dados no S3, sendo assim foi contornado para rodar o Spark localmente, dentro do ambiente Docker.
+**4. Transformação (Spark - Camadas Silver e Gold)**
+Utilizamos o **Apache Spark** rodando localmente em contêiner Docker para garantir controle total sobre as dependências e acesso ao S3. O script PySpark realiza:
+* **Bronze -> Silver:** Leitura dos JSONs (com tratamento de schemas complexos via `stack`/`explode`), limpeza de dados, tipagem e salvamento em formato **Delta Lake** no S3.
+* **Silver -> Gold:** Agregação de dados para regras de negócio (ex: Média semanal de fechamento, Contagem de notícias por categoria) salvos em **Delta Lake**.
 
-* Foi construído um script PySpark (orquestrado pelo Airflow) para ser responsável por todo o processamento:
-   * **Bronze -> Silver:** Lê os JSONs brutos do S3, aplica schemas, limpa (trata nulos, ajusta tipos de dados) e salva os dados em formato colunar otimizado (Parquet) na Camada Silver (S3).
-
-   * **Silver -> Gold:** Lê os dados limpos da Camada Silver e cria tabelas de negócios, agregadas e prontas para o consumo. Ex: Resumo semanal de ações, Contagem de notícias por dia.
-
-**5. Módulo de Demonstração (Databricks)**
-* Como prova de conceito separada, essa etapa inclui um notebook (.py ou .ipynb) para ser executado no Databricks Free Tier.
-
-* Ele demonstra como a mesma lógica de transformação (Bronze -> Gold) pode ser executada nativamente na plataforma Databricks, lendo dados do DBFS (via upload manual) e salvando-os como Tabelas Delta Lake, que são então consultadas via Databricks SQL.
+**5. Camada de Serviço e Visualização (PostgreSQL + Power BI)**
+* **Data Warehouse (PostgreSQL):** As tabelas da camada Gold são carregadas do S3 para o banco de dados PostgreSQL (`marketpulse_metadata`) usando a biblioteca `deltalake` e `sqlalchemy`.
+* **Visualização (Power BI):** O Power BI conecta-se diretamente ao PostgreSQL (modo Import) para alimentar os dashboards de análise de mercado e monitoramento de pipeline.
 
 ## 🛠️ Tecnologias Utilizadas
-   * Orquestração: Apache Airflow (via Docker Compose)
-   * Bancos de Dados: PostgreSQL (Metastore do Airflow e Metadados do Projeto), MongoDB (Fonte NoSQL)
-   * Processamento de Dados: Apache Spark (PySpark)
-   * Armazenamento (Data Lake): AWS S3
-   * Contêineres: Docker & Docker Compose
-   * Bibliotecas Python: pymongo, boto3, requests, beautifulsoup4
-   * Prova de Conceito (Cloud): Databricks (DBFS, Delta Lake, Databricks SQL)
+
+* **Orquestração:** Apache Airflow (via Docker Compose)
+* **Processamento de Dados:** Apache Spark (PySpark 3.5.1)
+* **Armazenamento (Data Lake):** AWS S3 (Formatos JSON, Parquet/Delta Lake)
+* **Bancos de Dados:**
+    * PostgreSQL (Metastore do Airflow e Data Warehouse/Metadados)
+    * MongoDB (Fonte de dados NoSQL)
+* **Infraestrutura:** Docker & Docker Compose
+* **Linguagem & Bibliotecas:** Python (boto3, pymongo, pandas, sqlalchemy, deltalake, requests, beautifulsoup4)
+* **Visualização:** Microsoft Power BI
 
 ## Pré-requisitos
 
 1.  Conta na AWS (com chaves de Acesso e Secreta)
 2.  Um bucket S3 na AWS (anote o nome)
 3.  Conta na [Alpha Vantage](https://www.alphavantage.co/) (anote a API Key)
-4.  Conta no [Databricks Free Tier](https://databricks.com/try-databricks)
-5.  Docker e Docker Compose instalados
+4.  Docker e Docker Compose instalados e permissões de usuário para gerenciar o docker
 
 ## 1. Configuração do Ambiente
 
 1.  Clone este repositório: `git clone ...`
 2.  Navegue até a pasta de configuração: `cd PROJETOENGDADOS/airflow-environment`
 3.  Crie seu arquivo `.env` a partir do exemplo: `cp .env.example .env`
-4.  Edite o arquivo `.env` e preencha as senhas `METADATA_DB_PASSWORD` e `MONGO_PASSWORD`.
+4.  Descubra ser User ID local (provavelmetne `1000`) rodando: `id -u`.
+5. Edite o arquivo `.env` e preencha as senhas `POSTGRES_PASSWORD`, `METADATA_DB_PASSWORD`, `MONGO_PASSWORD` e `AIRFLOW_UID` com o número do passo anterior.
 
-## 2. Build da Imagem de Extração
 
-A DAG de ingestão usa uma imagem Docker customizada. Você precisa "buildar" ela localmente:
+## 2. Build das Imagens Docker Customizadas
 
-1.  Navegue até a pasta do projeto: `cd PROJETOENGDADOS/marketpulse_project`
-2.  Execute o build: `docker build -t marketpulse-extractor:latest .`
+Nosso pipeline usa duas imagens customizadas. Precisamos "buildar" ambas localmente.
+
+1.  **Build da Imagem de Extração:**
+    ```bash
+    cd PROJETOENGDADOS/marketpulse_project
+    docker build -t marketpulse-extractor:latest .
+    ```
+
+2.  **Build da Imagem de Transformação (Spark):**
+    ```bash
+    cd PROJETOENGDADOS/marketpulse_transform
+    docker build -t marketpulse-transformer:latest .
+    ```
 
 ## 3. Subindo o Ambiente Airflow
 
-1.  Volte para a pasta do Airflow: `cd ../airflow-environment`
-2.  Suba os contêineres: `docker-compose up -d --build`
+1.  Volte para a pasta do Airflow: `cd ../airflow-environment`  
+
+2.  Suba todos os containers com todos os serviços (Airflow, Postgres, Mongo, etc.):
+    ```bash
+    docker-compose up -d --build
+    ```
 3.  Aguarde alguns minutos e acesse o Airflow em `http://localhost:8080` (usuário/senha padrão: `airflow`/`airflow`).
 
-## 4. Configuração Pós-Subida (Airflow e Databricks)
+## 4. Configuração Pós-Subida (Conexões do Airflow)
 
 Você precisa configurar o Airflow e os Bancos manualmente:
 
 ### No Airflow (localhost:8080):
 
 1.  **Variáveis:** Vá em `Admin -> Variables` e crie:
-    * `aws_access_key_id`: (Sua chave de acesso AWS)
-    * `aws_secret_access_key`: (Sua chave secreta AWS)
-    * `alpha_vantage_api_key`: (Sua chave da Alpha Vantage)
-2.  **Conexões:** Vá em `Admin -> Connections -> +` e crie:
+    * `AWS_ACCESS_KEY_ID`: (Sua chave de acesso AWS)
+    * `AWS_SECRET_ACCESS_KEY`: (Sua chave secreta AWS)
+    * `ALPHA_VANTAGE_API_KEY`: (Sua chave da Alpha Vantage)
+    * `AWS_DEFAULT_REGION`: (Região default da aplicação, ex `us-east`)
+
+2.  **Conexão 1 (MongoDB):** Vá em `Admin -> Connections -> +` e crie:
     * **Conn Id:** `mongo_marketpulse_db`
     * **Conn Type:** `Generic`
     * **Host:** `mongo`
+    * **Database:** `marketpulse_news`
     * **Login:** `mongoadmin`
     * **Password:** (A senha que você definiu no `.env` para `MONGO_PASSWORD`)
     * **Port:** `27017`
-    * **Extra:** `{"database": "marketpulse_news"}`
-3. Realize o mesmo procedimento acima para o metadata_db
+    * **Extra:** `{"database": "marketpulse_news"}` (Opcional)
 
-### No Databricks:
+3.  **Conexão 2 (Postgres - Datalab):** Vá em `Admin -> Connections -> +` e crie:
+    * **Conn Id:** `marketpulse_metadata_db`
+    * **Conn Type:** `Postgres`
+    * **Host:** `metadata-db`
+    * **Database:** `marketpulse_metadata`
+    * **Login:** `marketpulse_user`
+    * **Password:** (A senha que você definiu no `.env` para `METADATA_DB_PASSWORD`)
+    * **Port:** `5432`
+    * (Clique em **Test** para verificar se a conexão funciona)
+
+(POPULAR O MONGODB RODANDO O SCRIPT ATRAVÉS DE)
+```bash
+docker exec -it airflow-environment-airflow-worker-1 python /opt/airflow/dags/scrape_infomoney.py
+```
 
 
-
-## 5. Execução
+## 5. Execução e Verificaão
 
 1.  No Airflow, ative (unpause) as DAGs `marketpulse_data_ingestion` e `weekly_source_volume_monitoring`.
-2.  Dispare a `marketpulse_data_ingestion` manualmente para popular a Camada Bronze.
+2.  **Execute o Web Scraper (Primeira vez):** Para popular o MongoDB com dados, rode o script de scraping uma vez manualmente no seu terminal:
+    ```bash
+    docker exec -it airflow-environment-airflow-worker-1 python /opt/airflow/dags/scrape_infomoney.py
+    ```
+3.  **Execute o Pipeline ELT:** Dispare a DAG `marketpulse_data_ingestion` manualmente. Esta é a DAG principal que roda todo o pipeline (Bronze -> Silver -> Gold -> Postgres).
+4.  **Verifique o Resultado Final:** Após a DAG rodar com sucesso (tudo verde), conecte-se ao banco Postgres para ver suas tabelas prontas para o BI:
+    ```bash
+    docker exec -it airflow-environment-metadata-db-1 psql -U marketpulse_user -d marketpulse_metadata
+    ```
+    E então rode os selects:
+    ```sql
+    SELECT * FROM gold_agg_acoes_semanal LIMIT 5;
+    SELECT * FROM gold_agg_noticias_por_dia LIMIT 5;
+    \q
+    ```
+5.  Se os dados aparecerem, o pipeline está completo e pronto para ser conectado ao Power BI!
 

@@ -8,11 +8,23 @@ from airflow.models import Variable
 from airflow.hooks.base import BaseHook
 from pymongo import MongoClient, errors
 
+# --- Constantes e Configurações ---
 # Definindo o ID da conexão do postgress que foi criado no airflow
 POSTGRES_CONN_ID = "marketpulse_metadata_db"
 MONGO_CONN_ID = "mongo_marketpulse_db"      # Conexão genérica com o mongo
 STOCK_SYMBOL = 'PETR4.SA'
 BASE_URL = 'https://www.alphavantage.co/query'
+
+# Variável SQL para criar a tabela de métricas, se não existir
+CREATE_METRICS_TABLE_SQL = """
+CREATE TABLE IF NOT EXISTS volume_metrics (
+    id SERIAL PRIMARY KEY,
+    data_referencia DATE NOT NULL,
+    fonte VARCHAR(100) NOT NULL,
+    volumetria_registros INT NOT NULL,
+    data_coleta TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+"""
 
 @dag(
     dag_id="weekly_source_volume_monitoring",
@@ -33,8 +45,24 @@ def weekly_source_volume_monitoring_dag():
     
     Esta DAG monitora a voluemtria de dados nas fontes originais
     (API de ações e mongo db de notícias) e armazena essas
-    métricas em uma tabela de metadados no PostgreSQL.
+    métricas em uma tabela de metadados no PostgreSQL, garantindo que a
+    tabela de destino exista.
     """
+
+    @task
+    def ensure_metrics_table_exists():
+        """
+        Garante que a tabela de métricas exista no banco de metadados.
+        Cria a tabela se ela não existir.
+        """
+        print("Garantindo que a tabela 'volume_metrics' exista...")
+        try:
+            hook = PostgresHook(postgres_conn_id=POSTGRES_CONN_ID)
+            hook.run(CREATE_METRICS_TABLE_SQL)
+            print("Tabela volume_metrics verificada/criada com sucesso.")
+        except Exception as e:
+            print(f"Erro ao criar/verificar a tabela volume_metrics: {e}")
+            raise
 
     @task
     def get_api_volume(**kwargs):
@@ -135,7 +163,7 @@ def weekly_source_volume_monitoring_dag():
     @task
     def store_volume_metrics(api_metrics: dict, mongo_metrics: dict):
         """
-        Task 3: Armazena as métricas no banco de metaos PostgresSQL.
+        Task 3: Armazena as métricas no banco de metadados PostgresSQL.
         """
 
         print("Iniciando armazenamento de métricas no PostgreSQL...")
@@ -167,10 +195,20 @@ def weekly_source_volume_monitoring_dag():
             raise
 
     # --- Definindo o fluxo da DAG ---
+
+    # 1. Garante que a tabela de métricas exista
+    table_ready_task = ensure_metrics_table_exists()
+
+    # 2. Executa as tasks de extração (em paralelo)
     api_data = get_api_volume()
     mongo_data = get_mongodb_volume()
 
-    store_volume_metrics(api_metrics=api_data, mongo_metrics=mongo_data)
+    # 3. Instancia a task de armazenamento, que depende implicitamente das duas tasks anteriores
+    store_task = store_volume_metrics(api_metrics=api_data, mongo_metrics=mongo_data)
+
+    # 4. Define a dependência explícitca:
+    # A task 'store_task' só deve rodar DEPOIS que a 'table_ready_task' terminar com sucesso
+    table_ready_task >> store_task
 
 # Necessário para o Airflow "descobrir" a DAG
 weekly_source_volume_monitoring_dag()

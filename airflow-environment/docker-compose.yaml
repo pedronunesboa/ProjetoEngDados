@@ -78,7 +78,10 @@ x-airflow-common:
       beautifulsoup4
       pymongo
       boto3
-        
+      pandas
+      sqlalchemy
+      s3fs
+      deltalake
     # Adicionando a biblioteca driver python para postgres ao ambiente airflow/ Adicionando pacote do postgrees
     # The following line can be used to set a custom config file, stored in the local config folder
     # If you want to use it, outcomment it and replace airflow.cfg with the name of your config file

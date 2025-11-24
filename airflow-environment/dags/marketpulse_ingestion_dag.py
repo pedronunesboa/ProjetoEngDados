@@ -16,8 +16,14 @@ from airflow.providers.docker.operators.docker import DockerOperator
 from airflow.models import Variable
 from airflow.exceptions import AirflowException # Importa exceção padrão
 
+# --- Novas importações para a Task de Carga no BI ---
+import pandas as pd
+from sqlalchemy import create_engine
+from deltalake import DeltaTable
+
 # --- Constantes para a nova task ---
 MONGO_CONN_ID = "mongo_marketpulse_db"
+POSTGRES_CONN_ID = "marketpulse_metadata_db"
 # Vindo do script extract.py original
 S3_BUCKET_NAME = 'marketpulse-bronze-layer-pedroboa-20251006'
 
@@ -154,6 +160,89 @@ with DAG(
         network_mode="bridge" # <-- Usa a rede 'bridge' para acesso a internet para baixar jars do S3
     )
 
+    # --- Task 4 (NOVA): Carga do S3 Gold -> Postgres Datalab ---
+    @task
+    def load_gold_to_postgres():
+        """
+        Lê as tabelas da Camada Gold (Delta Lake) do S3 e as carrega no banco de dados PostgreSQL
+        para consumo do BI
+        """
+        logging.info("Iniciando carga S3 Gold -> Postgres...")
+
+        # 1. Definir caminhos s3 gold 
+        gold_agg_news_path = f"s3://{S3_BUCKET_NAME}/gold/agg_noticias_por_dia"
+        gold_agg_stocks_path = f"s3://{S3_BUCKET_NAME}/gold/agg_acoes_semanal/"
+
+        #opções de armazenamento para a bilbioteca 'deltalake' ler do S3.
+        storage_options = {
+            "aws_access_key_id": env_vars_from_airflow["AWS_ACCESS_KEY_ID"],
+            "aws_secret_access_key": env_vars_from_airflow["AWS_SECRET_ACCESS_KEY"],
+            "aws_region": env_vars_from_airflow["AWS_DEFAULT_REGION"],
+            "AWS_S3_ALLOW_UNSAFE_RENAME": "true" # Permite renomear arquivos no S3
+        }
+
+        # --- 2. Conectar ao Postgres ---
+        try:
+            logging.info(f"Lendo conexão Postgres: {POSTGRES_CONN_ID}")
+            conn_pg = BaseHook.get_connection(POSTGRES_CONN_ID)
+            # Formato: postgresql://[user]:[password]@[host]:[port]/[database]
+            conn_string_pg = (
+                f"postgresql://{conn_pg.login}:{conn_pg.password}@"
+                f"{conn_pg.host}:{conn_pg.port}/{conn_pg.schema}"
+            )
+            engine = create_engine(conn_string_pg)
+            logging.info("Conexão com Postgres (SQLAlchemy) criada com sucesso.")
+        except Exception as e:
+            logging.error(f"Erro ao criar conexão com Postgres: {e}")
+            raise
+
+        # --- 3. Ler Tabela Gold (Ações) e Carregar no Postgres ---
+        try:
+            logging.info(f"Lendo tabela Delta: {gold_agg_stocks_path}")
+            dt_stocks = DeltaTable(gold_agg_stocks_path, storage_options=storage_options)
+            df_stocks = dt_stocks.to_pandas()
+            
+            logging.info(f"Carregando {len(df_stocks)} linhas na tabela 'gold_agg_acoes_semanal'...")
+            df_stocks.to_sql(
+                "gold_agg_acoes_semanal",
+                engine,
+                if_exists="replace",
+                index=False
+            )
+            logging.info("Tabela 'gold_agg_acoes_semanal' carregada com sucesso.")
+        except Exception as e:
+            logging.error(f"Erro ao processar tabela de ações: {e}")
+            raise
+
+        # --- 4. Ler Tabela Gold (Notícias) e Carregar no Postgres ---
+        try:
+            logging.info(f"Lendo tabela Delta: {gold_agg_news_path}")
+            dt_news = DeltaTable(gold_agg_news_path, storage_options=storage_options)
+            df_news = dt_news.to_pandas()
+            
+            logging.info(f"Carregando {len(df_news)} linhas na tabela 'gold_agg_noticias_por_dia'...")
+            df_news.to_sql(
+                "gold_agg_noticias_por_dia",
+                engine,
+                if_exists="replace",
+                index=False
+            )
+            logging.info("Tabela 'gold_agg_noticias_por_dia' carregada com sucesso.")
+        except Exception as e:
+            logging.error(f"Erro ao processar tabela de notícias: {e}")
+            raise
+
+        logging.info("Carga S3 Gold -> Postgres concluída com sucesso.")
+
+    # --- Instanciação da Task 4 ---
+    load_gold_to_postgres_task = load_gold_to_postgres()
+    
+    # ===================================================================
+    # --- FIM DA NOVA TASK ---
+    # ===================================================================
+
     # --- Orquestração ---
     # Configura a Task 3 para rodar apenas depois que as tasks 1 e 2 terminarem com sucesso.
-    [extract_task_stocks, extract_news_to_bronze_task] >> transform_bronze_to_gold
+    # ELT -> Load to BI
+    [extract_task_stocks, extract_news_to_bronze_task] >> transform_bronze_to_gold >> load_gold_to_postgres_task
+
