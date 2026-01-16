@@ -8,7 +8,7 @@ from datetime import datetime
 
 # --- Configuração ---
 API_KEY = os.getenv('ALPHA_VANTAGE_API_KEY')
-STOCK_SYMBOL = 'PETR4.SA'
+STOCK_SYMBOL = os.getenv("STOCK_SYMBOL", "PETR4.SA") # Símbolo padrão se não for definido
 BASE_URL = 'https://www.alphavantage.co/query'
 S3_BUCKET_NAME = 'marketpulse-bronze-layer-pedroboa-20251006' # <-- IMPORTANTE: SUBSTITUA PELO NOME DO SEU BUCKET
 

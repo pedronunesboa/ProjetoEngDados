@@ -63,7 +63,18 @@ Utilizamos o **Apache Spark** rodando localmente em contêiner Docker para garan
 3.  Conta na [Alpha Vantage](https://www.alphavantage.co/) (anote a API Key)
 4.  Docker e Docker Compose instalados e permissões de usuário para gerenciar o docker
 
-## 1. Configuração do Ambiente
+## 1. Configuração da Nova Máquina (Permissões do Docker)
+
+Em uma nova máquina Linux/WSL, seu usuário precisa de permissão para gerenciar o Docker.
+
+1.  Adicione seu usuário ao grupo `docker`:
+    ```bash
+    sudo usermod -aG docker $USER
+    ```
+2.  **Feche e reabra seu terminal** para que as novas permissões entrem em vigor.
+3.  Verifique se funcionou rodando `docker ps`. Se não der erro de permissão, você está pronto.
+
+## 2. Configuração do Ambiente
 
 1.  Clone este repositório: `git clone ...`
 2.  Navegue até a pasta de configuração: `cd PROJETOENGDADOS/airflow-environment`
@@ -72,7 +83,7 @@ Utilizamos o **Apache Spark** rodando localmente em contêiner Docker para garan
 5. Edite o arquivo `.env` e preencha as senhas `POSTGRES_PASSWORD`, `METADATA_DB_PASSWORD`, `MONGO_PASSWORD` e `AIRFLOW_UID` com o número do passo anterior.
 
 
-## 2. Build das Imagens Docker Customizadas
+## 3. Build das Imagens Docker Customizadas
 
 Nosso pipeline usa duas imagens customizadas. Precisamos "buildar" ambas localmente.
 
@@ -88,7 +99,7 @@ Nosso pipeline usa duas imagens customizadas. Precisamos "buildar" ambas localme
     docker build -t marketpulse-transformer:latest .
     ```
 
-## 3. Subindo o Ambiente Airflow
+## 4. Subindo o Ambiente Airflow
 
 1.  Volte para a pasta do Airflow: `cd ../airflow-environment`  
 
@@ -98,17 +109,17 @@ Nosso pipeline usa duas imagens customizadas. Precisamos "buildar" ambas localme
     ```
 3.  Aguarde alguns minutos e acesse o Airflow em `http://localhost:8080` (usuário/senha padrão: `airflow`/`airflow`).
 
-## 4. Configuração Pós-Subida (Conexões do Airflow)
+## 5. Configuração Pós-Subida (Conexões do Airflow)
 
 Você precisa configurar o Airflow e os Bancos manualmente:
 
 ### No Airflow (localhost:8080):
 
 1.  **Variáveis:** Vá em `Admin -> Variables` e crie:
-    * `AWS_ACCESS_KEY_ID`: (Sua chave de acesso AWS)
-    * `AWS_SECRET_ACCESS_KEY`: (Sua chave secreta AWS)
-    * `ALPHA_VANTAGE_API_KEY`: (Sua chave da Alpha Vantage)
-    * `AWS_DEFAULT_REGION`: (Região default da aplicação, ex `us-east`)
+    * `aws_access_key_id`: (Sua chave de acesso AWS)
+    * `aws_secret_access_key`: (Sua chave secreta AWS)
+    * `alpha_vantage_api_key`: (Sua chave da Alpha Vantage)
+    * `aws_default_region`: (Região default da aplicação, ex `us-east`)
 
 2.  **Conexão 1 (MongoDB):** Vá em `Admin -> Connections -> +` e crie:
     * **Conn Id:** `mongo_marketpulse_db`
@@ -130,23 +141,18 @@ Você precisa configurar o Airflow e os Bancos manualmente:
     * **Port:** `5432`
     * (Clique em **Test** para verificar se a conexão funciona)
 
-(POPULAR O MONGODB RODANDO O SCRIPT ATRAVÉS DE)
-```bash
-docker exec -it airflow-environment-airflow-worker-1 python /opt/airflow/dags/scrape_infomoney.py
-```
 
-
-## 5. Execução e Verificaão
+## 6. Execução e Verificaão
 
 1.  No Airflow, ative (unpause) as DAGs `marketpulse_data_ingestion` e `weekly_source_volume_monitoring`.
 2.  **Execute o Web Scraper (Primeira vez):** Para popular o MongoDB com dados, rode o script de scraping uma vez manualmente no seu terminal:
     ```bash
-    docker exec -it airflow-environment-airflow-worker-1 python /opt/airflow/dags/scrape_infomoney.py
+    docker exec -it airflow-environment_airflow-worker_1 python /opt/airflow/dags/scrape_infomoney.py
     ```
 3.  **Execute o Pipeline ELT:** Dispare a DAG `marketpulse_data_ingestion` manualmente. Esta é a DAG principal que roda todo o pipeline (Bronze -> Silver -> Gold -> Postgres).
 4.  **Verifique o Resultado Final:** Após a DAG rodar com sucesso (tudo verde), conecte-se ao banco Postgres para ver suas tabelas prontas para o BI:
     ```bash
-    docker exec -it airflow-environment-metadata-db-1 psql -U marketpulse_user -d marketpulse_metadata
+    docker exec -it airflow-environment_metadata-db_1 psql -U marketpulse_user -d marketpulse_metadata
     ```
     E então rode os selects:
     ```sql

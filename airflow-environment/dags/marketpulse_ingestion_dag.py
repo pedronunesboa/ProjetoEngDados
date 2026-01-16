@@ -3,7 +3,7 @@ from __future__ import annotations
 import pendulum
 import logging
 import json
-from datetime import datetime
+from datetime import datetime, timedelta
 from bson import json_util # Para converter ObjectID e ISODate do Mongo
 
 import boto3
@@ -15,6 +15,7 @@ from airflow.models.dag import DAG
 from airflow.providers.docker.operators.docker import DockerOperator
 from airflow.models import Variable
 from airflow.exceptions import AirflowException # Importa exceção padrão
+from airflow.utils.task_group import TaskGroup     # Importação adicionada, necessária para agrupar tasks (TaskGroups)
 
 # --- Novas importações para a Task de Carga no BI ---
 import pandas as pd
@@ -26,6 +27,10 @@ MONGO_CONN_ID = "mongo_marketpulse_db"
 POSTGRES_CONN_ID = "marketpulse_metadata_db"
 # Vindo do script extract.py original
 S3_BUCKET_NAME = 'marketpulse-bronze-layer-pedroboa-20251006'
+
+# Lista de ações para buscar na API
+STOCK_LIST = ["PETR4.SA", "VALE3.SA", "ITUB4.SA", "BBDC4.SA", "BBAS3.SA",
+              "WEGE3.SA", "ABEV3.SA", "MGLU3.SA", "EMBJ3.SA", "FLRY3.SA"]
 
 # --- Etapa 1: Puxar variáveis (Segurança) ---
 # Puxa as variáveis ANTES de definir a DAG.
@@ -47,6 +52,10 @@ with DAG(
     start_date=pendulum.datetime(2025, 10, 15, tz="America/Sao_Paulo"),
     schedule="@daily", # Executa uma vez por dia, logo após a meia-noite
     catchup=False,
+    default_args={
+        'retries': 3, # Tenta até 3 vezes se a API falhar
+        'retry_delay': timedelta(minutes=2), # Espera 2 min entre tentativas
+    },
     doc_md="""
     ### Pipeline ELT Marketpulse (Bronze -> Gold)
     Esta DAG orquestra o pipeline completo de ingestão e transformação.
@@ -55,22 +64,34 @@ with DAG(
     - T (Transform): Task 3 roda o job Spark (em docker) para transformar os dados da
     camada Bronze para as camadas Silver/Gold.
     """,
-    tags=["projeto_marketpulse", "spark", "elt", "pipeline_1"],
+    tags=["projeto_marketpulse", "spark", "elt", "multi_stocks"],
 ) as dag:
     # --- Task 1: Extração de ações (API -> S3)
     # --- Definição da Tarefa ---
-    extract_task_stocks = DockerOperator(
-        task_id="extract_stocks_to_bronze",
-        image="marketpulse-extractor:latest", # Nome da imagem que construímos
-        auto_remove=True,
+    with TaskGroup("extract_stocks_group", tooltip="Extrai lista de ações sequencialmente") as extract_stocks_group:
 
-        # Agora estamos passando o dicionários que lemos das Variables (Método atual)
-        environment=env_vars_from_airflow,
+        for stock in STOCK_LIST:
+            # Tratamento do nome para o ID da task (Airflow não aceita pontos no ID)
+            clean_stock_id = stock.replace(".", "_")
 
-        # Garante que o container consegue se comunicar com o Docker Engine do host
-        docker_url="unix://var/run/docker.sock",
-        network_mode="bridge",
-    )
+            # Criamos uma nova cópia das variáveis e injvetamos o símbolo específico dessa iteração
+            current_env_vars = env_vars_from_airflow.copy()
+            current_env_vars['STOCK_SYMBOL'] = stock
+
+            DockerOperator(
+                task_id=f'extract_{clean_stock_id}', # Ex: extract_PETR4_SA
+                image="marketpulse-extractor:latest",
+                container_name=f'task_extract_{clean_stock_id}', # Facilita debug no Docker
+                auto_remove=True,
+
+                # O segredo do rate limit ---
+                pool = 'alpha_vantage_pool', # Usa a pool criada para limitar concorrência
+
+                environment=current_env_vars,
+                docker_url="unix://var/run/docker.sock",
+                network_mode = "bridge",
+                mount_tmp_dir=False
+            )
 
     # --- Task 2: Extração de notícias (Mongo -> S3)
     @task
@@ -244,5 +265,5 @@ with DAG(
     # --- Orquestração ---
     # Configura a Task 3 para rodar apenas depois que as tasks 1 e 2 terminarem com sucesso.
     # ELT -> Load to BI
-    [extract_task_stocks, extract_news_to_bronze_task] >> transform_bronze_to_gold >> load_gold_to_postgres_task
+    [extract_stocks_group, extract_news_to_bronze_task] >> transform_bronze_to_gold >> load_gold_to_postgres_task
 
