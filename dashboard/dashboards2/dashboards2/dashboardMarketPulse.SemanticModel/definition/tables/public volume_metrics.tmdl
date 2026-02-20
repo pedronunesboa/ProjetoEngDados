@@ -1,0 +1,72 @@
+table 'public volume_metrics'
+	lineageTag: 25c276a5-eb7a-41e4-9dca-37d33c894059
+
+	column id
+		dataType: int64
+		formatString: 0
+		lineageTag: c471f911-c070-4bf0-9759-11a3911d5321
+		summarizeBy: sum
+		sourceColumn: id
+
+		annotation SummarizationSetBy = Automatic
+
+	column data_referencia
+		dataType: dateTime
+		formatString: Long Date
+		lineageTag: 968186a0-c15a-4564-b965-0ad7eaef315e
+		summarizeBy: none
+		sourceColumn: data_referencia
+
+		variation Variation
+			isDefault
+			relationship: 57d65182-f9fe-4228-91cd-9aa60551f174
+			defaultHierarchy: LocalDateTable_8d921811-8056-4c49-92e3-84eb5a64a897.'Hierarquia de datas'
+
+		annotation SummarizationSetBy = Automatic
+
+		annotation UnderlyingDateTimeDataType = Date
+
+	column fonte
+		dataType: string
+		lineageTag: 5b4fbc4c-a1fe-4a53-8893-b97a1303859f
+		summarizeBy: none
+		sourceColumn: fonte
+
+		annotation SummarizationSetBy = Automatic
+
+	column volumetria_registros
+		dataType: int64
+		formatString: 0
+		lineageTag: fc674864-6f3e-40be-9a89-d75eb6816ced
+		summarizeBy: sum
+		sourceColumn: volumetria_registros
+
+		annotation SummarizationSetBy = Automatic
+
+	column data_coleta
+		dataType: dateTime
+		formatString: General Date
+		lineageTag: 85d15d65-4b04-459b-a368-6a0790bd1da2
+		summarizeBy: none
+		sourceColumn: data_coleta
+
+		variation Variation
+			isDefault
+			relationship: e2695fe8-2dd0-42c5-bc49-27e521914ee1
+			defaultHierarchy: LocalDateTable_9f5cd3ca-5590-4954-b7d2-3980b754dae9.'Hierarquia de datas'
+
+		annotation SummarizationSetBy = Automatic
+
+	partition 'public volume_metrics' = m
+		mode: import
+		source =
+				let
+				    Fonte = PostgreSQL.Database("localhost:5433", "marketpulse_metadata"),
+				    public_volume_metrics = Fonte{[Schema="public",Item="volume_metrics"]}[Data]
+				in
+				    public_volume_metrics
+
+	annotation PBI_ResultType = Table
+
+	annotation PBI_NavigationStepName = Navegação
+

@@ -1,0 +1,41 @@
+table 'public gold_agg_noticias_por_dia'
+	lineageTag: dc1815d5-68d2-4a46-9130-063f69f9ee41
+
+	column data_particao
+		dataType: string
+		lineageTag: 9a00ce5a-26f3-4b1f-91c4-055da74d073f
+		summarizeBy: none
+		sourceColumn: data_particao
+
+		annotation SummarizationSetBy = Automatic
+
+	column categoria_noticia
+		dataType: string
+		lineageTag: b5e6fe92-9b89-4304-853f-882a3665ee38
+		summarizeBy: none
+		sourceColumn: categoria_noticia
+
+		annotation SummarizationSetBy = Automatic
+
+	column total_noticias
+		dataType: int64
+		formatString: 0
+		lineageTag: b4610c0c-f79d-44cb-af6c-5162424c83b2
+		summarizeBy: sum
+		sourceColumn: total_noticias
+
+		annotation SummarizationSetBy = Automatic
+
+	partition 'public gold_agg_noticias_por_dia' = m
+		mode: import
+		source =
+				let
+				    Fonte = PostgreSQL.Database("localhost:5433", "marketpulse_metadata"),
+				    public_gold_agg_noticias_por_dia = Fonte{[Schema="public",Item="gold_agg_noticias_por_dia"]}[Data]
+				in
+				    public_gold_agg_noticias_por_dia
+
+	annotation PBI_ResultType = Table
+
+	annotation PBI_NavigationStepName = Navegação
+

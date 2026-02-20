@@ -1,0 +1,25 @@
+model Model
+	culture: pt-BR
+	defaultPowerBIDataSourceVersion: powerBI_V3
+	sourceQueryCulture: pt-BR
+	dataAccessOptions
+		legacyRedirects
+		returnErrorValuesAsNull
+
+annotation __PBI_TimeIntelligenceEnabled = 1
+
+annotation PBI_QueryOrder = ["public gold_agg_acoes_semanal","public gold_agg_noticias_por_dia","public volume_metrics"]
+
+annotation PBI_ProTooling = ["DevMode"]
+
+ref table 'public gold_agg_acoes_semanal'
+ref table 'public gold_agg_noticias_por_dia'
+ref table 'public volume_metrics'
+ref table DateTableTemplate_1b85ea3b-e315-4441-aee6-d6289df949b6
+ref table LocalDateTable_8d921811-8056-4c49-92e3-84eb5a64a897
+ref table LocalDateTable_9f5cd3ca-5590-4954-b7d2-3980b754dae9
+ref table dCalendario
+ref table Medidas
+
+ref cultureInfo pt-BR
+

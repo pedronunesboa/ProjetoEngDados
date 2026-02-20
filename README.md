@@ -5,17 +5,20 @@ Este repositório contém um projeto completo de pipeline de engenharia de dados
 O projeto é 100% "containerizado" usando Docker, permitindo total portabilidade e reprodutibilidade.
 
 ## 🚀 Conceito do Projeto
+
 O **MarketPulse** captura dois tipos de dados de fontes distintas:
 
-1.  **Dados Estruturados:** Cotações diárias de ações (OHLCV - Open, High, Low, Close, Volume) da B3 (ex: PETR4) através da API Alpha Vantage.
-2.  **Dados Não Estruturados:** Manchetes de notícias do mercado financeiro, coletadas via web scraping do portal InfoMoney e armazenadas em um banco MongoDB.
+1. **Dados Estruturados:** Cotações diárias de ações (OHLCV - Open, High, Low, Close, Volume) da B3 (ex: PETR4) através da API Alpha Vantage.
+2. **Dados Não Estruturados:** Manchetes de notícias do mercado financeiro, coletadas via web scraping do portal InfoMoney e armazenadas em um banco MongoDB.
 
 O objetivo final é mover esses dados brutos através de um Data Lake (AWS S3), transformá-los com Spark e disponibilizá-los em um Data Warehouse (PostgreSQL) para consumo analítico no Power BI.
 
 ## 🏛️ Arquitetura e Fluxo de Dados
+
 O pipeline segue a arquitetura Medallion (Bronze, Silver, Gold), orquestrada pelo Apache Airflow.
 
 **1. Fontes de Dados (Source)**
+
 * **API de Ações:** Alpha Vantage (Dados estruturados).
 * **MongoDB:** Populado por um script de web scraping customizado (BeautifulSoup + requests) que busca notícias do InfoMoney.
 
@@ -23,24 +26,30 @@ O pipeline segue a arquitetura Medallion (Bronze, Silver, Gold), orquestrada pel
 O coração do projeto, rodando em Docker. Ele gerencia dois pipelines principais:
 
 * **Pipeline I (`marketpulse_data_ingestion`):** DAG principal de ELT, agendada diariamente.
-    * `extract_stocks_to_bronze` (DockerOperator): Roda uma imagem Docker customizada para buscar dados da API e salvá-los na Camada Bronze (S3).
-    * `extract_news_to_bronze` (PythonOperator): Lê notícias do MongoDB (via pymongo) e salva o JSON bruto na Camada Bronze (S3).
-    * `transform_bronze_to_gold` (DockerOperator): A etapa de transformação (T). Dispara um contêiner **Apache Spark** (imagem oficial `apache/spark`) que executa um job PySpark para processar os dados Bronze -> Silver -> Gold.
-    * `load_gold_to_postgres` (PythonOperator): A etapa final de carga. Lê as tabelas Delta Lake da camada Gold no S3 e as carrega no banco de dados PostgreSQL (Datalab) para consumo.
+* `extract_stocks_to_bronze` (DockerOperator): Roda uma imagem Docker customizada para buscar dados da API e salvá-los na Camada Bronze (S3).
+* `extract_news_to_bronze` (PythonOperator): Lê notícias do MongoDB (via pymongo) e salva o JSON bruto na Camada Bronze (S3).
+* `transform_bronze_to_gold` (DockerOperator): A etapa de transformação (T). Dispara um contêiner **Apache Spark** (imagem oficial `apache/spark`) que executa um job PySpark para processar os dados Bronze -> Silver -> Gold.
+* `load_gold_to_postgres` (PythonOperator): A etapa final de carga. Lê as tabelas Delta Lake da camada Gold no S3 e as carrega no banco de dados PostgreSQL (Datalab) para consumo.
+
 
 * **Pipeline II (`weekly_source_volume_monitoring`):** DAG de monitoramento e Data Quality.
-    * `get_api_volume` / `get_mongodb_volume`: Conectam-se às fontes originais para aferir a volumetria real.
-    * `store_volume_metrics`: Armazena metadados de volumetria no PostgreSQL para auditoria.
+* `get_api_volume` / `get_mongodb_volume`: Conectam-se às fontes originais para aferir a volumetria real.
+* `store_volume_metrics`: Armazena metadados de volumetria no PostgreSQL para auditoria.
+
+
 
 **3. Ingestão (Camada Bronze - AWS S3)**
+
 * Os dados brutos (JSONs) são armazenados no AWS S3 sem modificação, particionados por data (ex: `s3://.../stock_data/` e `s3://.../news_data/`).
 
 **4. Transformação (Spark - Camadas Silver e Gold)**
 Utilizamos o **Apache Spark** rodando localmente em contêiner Docker para garantir controle total sobre as dependências e acesso ao S3. O script PySpark realiza:
+
 * **Bronze -> Silver:** Leitura dos JSONs (com tratamento de schemas complexos via `stack`/`explode`), limpeza de dados, tipagem e salvamento em formato **Delta Lake** no S3.
 * **Silver -> Gold:** Agregação de dados para regras de negócio (ex: Média semanal de fechamento, Contagem de notícias por categoria) salvos em **Delta Lake**.
 
 **5. Camada de Serviço e Visualização (PostgreSQL + Power BI)**
+
 * **Data Warehouse (PostgreSQL):** As tabelas da camada Gold são carregadas do S3 para o banco de dados PostgreSQL (`marketpulse_metadata`) usando a biblioteca `deltalake` e `sqlalchemy`.
 * **Visualização (Power BI):** O Power BI conecta-se diretamente ao PostgreSQL (modo Import) para alimentar os dashboards de análise de mercado e monitoramento de pipeline.
 
@@ -56,58 +65,96 @@ Utilizamos o **Apache Spark** rodando localmente em contêiner Docker para garan
 * **Linguagem & Bibliotecas:** Python (boto3, pymongo, pandas, sqlalchemy, deltalake, requests, beautifulsoup4)
 * **Visualização:** Microsoft Power BI
 
-## Pré-requisitos
+---
 
-1.  Conta na AWS (com chaves de Acesso e Secreta)
-2.  Um bucket S3 na AWS (anote o nome)
-3.  Conta na [Alpha Vantage](https://www.alphavantage.co/) (anote a API Key)
-4.  Docker e Docker Compose instalados e permissões de usuário para gerenciar o docker
+## 📋 Pré-requisitos
+
+1. Conta na AWS (com chaves de Acesso e Secreta)
+2. Um bucket S3 na AWS (anote o nome)
+3. Conta na [Alpha Vantage](https://www.alphavantage.co/) (anote a API Key)
+4. Docker e Docker Compose instalados e permissões de usuário para gerenciar o docker
+
+### ⚠️ Configuração de Infraestrutura (Obrigatório para novas máquinas)
+
+Para garantir que o pipeline funcione corretamente em ambientes Linux/WSL, as seguintes etapas de permissão e versão do Docker devem ser seguidas:
+
+**1. Versão do Docker e Compose:**
+Certifique-se de estar utilizando o Docker Engine v20.10+ e o Docker Compose V2 (comando `docker compose` sem o hífen).
+
+**2. Permissões do Socket (Docker-in-Docker):**
+O Airflow utiliza o `DockerOperator` para disparar containers de extração e Spark. Para isso, o usuário e o container precisam de permissão no socket do host:
+
+```bash
+# Adicione seu usuário ao grupo docker
+sudo usermod -aG docker $USER
+
+# Liberte a permissão do socket (Necessário repetir após reboots em alguns ambientes)
+sudo chmod 666 /var/run/docker.sock
+
+# Aplique as mudanças de grupo sem deslogar
+newgrp docker
+
+```
+
+---
 
 ## 1. Configuração da Nova Máquina (Permissões do Docker)
 
 Em uma nova máquina Linux/WSL, seu usuário precisa de permissão para gerenciar o Docker.
 
-1.  Adicione seu usuário ao grupo `docker`:
-    ```bash
-    sudo usermod -aG docker $USER
-    ```
-2.  **Feche e reabra seu terminal** para que as novas permissões entrem em vigor.
-3.  Verifique se funcionou rodando `docker ps`. Se não der erro de permissão, você está pronto.
+1. Adicione seu usuário ao grupo `docker`:
+```bash
+sudo usermod -aG docker $USER
+
+```
+
+
+2. **Feche e reabra seu terminal** para que as novas permissões entrem em vigor.
+3. Verifique se funcionou rodando `docker ps`. Se não der erro de permissão, você está pronto.
 
 ## 2. Configuração do Ambiente
 
-1.  Clone este repositório: `git clone ...`
-2.  Navegue até a pasta de configuração: `cd PROJETOENGDADOS/airflow-environment`
-3.  Crie seu arquivo `.env` a partir do exemplo: `cp .env.example .env`
-4.  Descubra ser User ID local (provavelmetne `1000`) rodando: `id -u`.
+1. Clone este repositório: `git clone ...`
+2. Navegue até a pasta de configuração: `cd PROJETOENGDADOS/airflow-environment`
+3. Crie seu arquivo `.env` a partir do exemplo: `cp .env.example .env`
+4. Descubra seu User ID local (provavelmente `1000`) rodando: `id -u`.
 5. Edite o arquivo `.env` e preencha as senhas `POSTGRES_PASSWORD`, `METADATA_DB_PASSWORD`, `MONGO_PASSWORD` e `AIRFLOW_UID` com o número do passo anterior.
+* **Nota:** Garanta que a `MONGO_PASSWORD` coincida com a utilizada na string de conexão do scraper.
+
 
 
 ## 3. Build das Imagens Docker Customizadas
 
-Nosso pipeline usa duas imagens customizadas. Precisamos "buildar" ambas localmente.
+Nosso pipeline usa duas imagens customizadas. Precisamos "buildar" ambas localmente para que o Airflow as encontre:
 
-1.  **Build da Imagem de Extração:**
-    ```bash
-    cd PROJETOENGDADOS/marketpulse_project
-    docker build -t marketpulse-extractor:latest .
-    ```
+1. **Build da Imagem de Extração:**
+```bash
+cd PROJETOENGDADOS/marketpulse_project
+docker build -t marketpulse-extractor:latest .
 
-2.  **Build da Imagem de Transformação (Spark):**
-    ```bash
-    cd PROJETOENGDADOS/marketpulse_transform
-    docker build -t marketpulse-transformer:latest .
-    ```
+```
+
+
+2. **Build da Imagem de Transformação (Spark):**
+```bash
+cd PROJETOENGDADOS/marketpulse_transform
+docker build -t marketpulse-transformer:latest .
+
+```
+
+
 
 ## 4. Subindo o Ambiente Airflow
 
-1.  Volte para a pasta do Airflow: `cd ../airflow-environment`  
+1. Volte para a pasta do Airflow: `cd ../airflow-environment`
+2. Suba todos os containers com todos os serviços:
+```bash
+docker compose up -d --build
 
-2.  Suba todos os containers com todos os serviços (Airflow, Postgres, Mongo, etc.):
-    ```bash
-    docker-compose up -d --build
-    ```
-3.  Aguarde alguns minutos e acesse o Airflow em `http://localhost:8080` (usuário/senha padrão: `airflow`/`airflow`).
+```
+
+
+3. Aguarde alguns minutos e acesse o Airflow em `http://localhost:8080` (usuário/senha padrão: `airflow`/`airflow`).
 
 ## 5. Configuração Pós-Subida (Conexões do Airflow)
 
@@ -115,50 +162,117 @@ Você precisa configurar o Airflow e os Bancos manualmente:
 
 ### No Airflow (localhost:8080):
 
-1.  **Variáveis:** Vá em `Admin -> Variables` e crie:
-    * `aws_access_key_id`: (Sua chave de acesso AWS)
-    * `aws_secret_access_key`: (Sua chave secreta AWS)
-    * `alpha_vantage_api_key`: (Sua chave da Alpha Vantage)
-    * `aws_default_region`: (Região default da aplicação, ex `us-east`)
-
-2.  **Conexão 1 (MongoDB):** Vá em `Admin -> Connections -> +` e crie:
-    * **Conn Id:** `mongo_marketpulse_db`
-    * **Conn Type:** `Generic`
-    * **Host:** `mongo`
-    * **Database:** `marketpulse_news`
-    * **Login:** `mongoadmin`
-    * **Password:** (A senha que você definiu no `.env` para `MONGO_PASSWORD`)
-    * **Port:** `27017`
-    * **Extra:** `{"database": "marketpulse_news"}` (Opcional)
-
-3.  **Conexão 2 (Postgres - Datalab):** Vá em `Admin -> Connections -> +` e crie:
-    * **Conn Id:** `marketpulse_metadata_db`
-    * **Conn Type:** `Postgres`
-    * **Host:** `metadata-db`
-    * **Database:** `marketpulse_metadata`
-    * **Login:** `marketpulse_user`
-    * **Password:** (A senha que você definiu no `.env` para `METADATA_DB_PASSWORD`)
-    * **Port:** `5432`
-    * (Clique em **Test** para verificar se a conexão funciona)
+1. **Variáveis:** Vá em `Admin -> Variables` e crie:
+* `aws_access_key_id`: (Sua chave de acesso AWS)
+* `aws_secret_access_key`: (Sua chave secreta AWS)
+* `alpha_vantage_api_key`: (Sua chave da Alpha Vantage)
+* `aws_default_region`: (Região default da aplicação, ex `us-east-1`)
 
 
-## 6. Execução e Verificaão
+2. **Pool de Concorrência (Crucial):**
+A API Alpha Vantage (Free) permite apenas 5 chamadas por minuto. Para evitar erros nas 10 buscas de ações, crie uma Pool:
+* Vá em `Admin -> Pools -> +`
+* **Pool:** `alpha_vantage_pool`
+* **Slots:** `1` (Isso garante que as extrações rodem uma por vez).
 
-1.  No Airflow, ative (unpause) as DAGs `marketpulse_data_ingestion` e `weekly_source_volume_monitoring`.
-2.  **Execute o Web Scraper (Primeira vez):** Para popular o MongoDB com dados, rode o script de scraping uma vez manualmente no seu terminal:
-    ```bash
-    docker exec -it airflow-environment_airflow-worker_1 python /opt/airflow/dags/scrape_infomoney.py
+
+3. **Conexão 1 (MongoDB):** Vá em `Admin -> Connections -> +` e crie:
+* **Conn Id:** `mongo_marketpulse_db`
+* **Conn Type:** `Generic`
+* **Host:** `mongo`
+* **Database:** `marketpulse_news`
+* **Login:** `mongoadmin`
+* **Password:** (A senha do seu `.env`)
+* **Port:** `27017`
+* **Extra:** `{"database": "marketpulse_news"}`
+
+
+4. **Conexão 2 (Postgres - Datalab):** Vá em `Admin -> Connections -> +` e crie:
+* **Conn Id:** `marketpulse_metadata_db`
+* **Conn Type:** `Postgres`
+* **Host:** `metadata-db`
+* **Database:** `marketpulse_metadata`
+* **Login:** `marketpulse_user`
+* **Password:** (A senha do seu `.env`)
+* **Port:** `5432`
+
+
+
+## 6. Execução e Verificação
+
+1. No Airflow, ative (unpause) as DAGs `marketpulse_data_ingestion` e `weekly_source_volume_monitoring`.
+2. **Execute o Web Scraper (Primeira vez):** Para popular o MongoDB com dados, rode o script manualmente:
+```bash
+docker exec -it $(docker ps -qf "name=worker") python /opt/airflow/dags/scrape_infomoney.py
+
+```
+
+
+3. **Execute o Pipeline ELT:** Dispare a DAG `marketpulse_data_ingestion` manualmente.
+4. **Verifique o Resultado Final:** No terminal, acesse o banco de metadados para confirmar a carga:
+```bash
+docker exec -it $(docker ps -qf "name=metadata-db") psql -U marketpulse_user -d marketpulse_metadata
+
+```
+
+
+Execute os comandos SQL:
+```sql
+-- Verifica se todas as 10 ações foram carregadas
+SELECT symbol, count(*) FROM gold_agg_acoes_semanal GROUP BY symbol;
+
+-- Verifica notícias
+SELECT * FROM gold_agg_noticias_por_dia LIMIT 5;
+\q
+
+```
+
+
+5. Se os dados aparecerem, conecte o Power BI ao `localhost:5433` (ou a porta configurada no seu YAML).
+
+## 7. Conexão com Power BI
+
+#### **Conectando o Power BI ao PostgreSQL**
+
+Siga os passos abaixo para importar os dados e tratar o erro de data (Ano 1905):
+
+1. Obter Dados: No Power BI Desktop, vá em Obter Dados > Banco de Dados PostgreSQL.
+
+2. Configurações do Servidor:
+
+    - Servidor: localhost:5433 (Usamos a porta mapeada no Docker).
+
+    - Banco de Dados: marketpulse_metadata.
+
+    - Modo de Conectividade: Importar.
+
+3. Autenticação: Na janela que abrir, selecione a aba Banco de Dados à esquerda.
+
+    - Usuário: marketpulse_user.
+
+    - Senha: (A senha definida no seu arquivo .env).
+
+4. Tratamento de Dados (Correção do Ano 1905):
+    - Ao carregar a tabela gold_agg_acoes_semanal, você verá as colunas ano (ex: 2025) e semana (ex: 12). Não altere o tipo para Data diretamente, ou terá o erro de 1905.
+
+    - Clique em Transformar Dados para abrir o Power Query.
+
+    - Vá em Adicionar Coluna > Coluna Personalizada.
+
+    - Nome da coluna: Data_Referencia.
+
+    - Use a fórmula abaixo para converter o Ano e a Semana em uma data real (segunda-feira daquela semana):
+
+    ```bash 
+        Date.AddDays(Date.StartOfYear(#date([ano], 1, 1)), ([semana] - 1) * 7)
     ```
-3.  **Execute o Pipeline ELT:** Dispare a DAG `marketpulse_data_ingestion` manualmente. Esta é a DAG principal que roda todo o pipeline (Bronze -> Silver -> Gold -> Postgres).
-4.  **Verifique o Resultado Final:** Após a DAG rodar com sucesso (tudo verde), conecte-se ao banco Postgres para ver suas tabelas prontas para o BI:
-    ```bash
-    docker exec -it airflow-environment_metadata-db_1 psql -U marketpulse_user -d marketpulse_metadata
-    ```
-    E então rode os selects:
-    ```sql
-    SELECT * FROM gold_agg_acoes_semanal LIMIT 5;
-    SELECT * FROM gold_agg_noticias_por_dia LIMIT 5;
-    \q
-    ```
-5.  Se os dados aparecerem, o pipeline está completo e pronto para ser conectado ao Power BI!
 
+    - Agora altere o tipo desta nova coluna para Data.
+
+    - Remova as colunas originais de ano e semana se desejar.
+
+## 🏆 Resultado Final
+
+O projeto resulta em um dashboard interativo que permite analisar a correlação entre o volume de notícias e a movimentação de preços das principais ações da B3, com indicadores de variação semanal e tendências históricas.
+
+Desenvolvido por Pedro Nunes como parte do portfólio de Engenharia de Dados.

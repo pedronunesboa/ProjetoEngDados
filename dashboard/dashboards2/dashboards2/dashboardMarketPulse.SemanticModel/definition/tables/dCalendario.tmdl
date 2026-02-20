@@ -1,0 +1,61 @@
+table dCalendario
+	lineageTag: 0c6641b5-846c-40ec-a015-be5f99709ac7
+
+	column Date
+		formatString: General Date
+		lineageTag: c0b086bc-8c64-4748-9555-0085221b2a2a
+		summarizeBy: none
+		isNameInferred
+		sourceColumn: [Date]
+
+		annotation SummarizationSetBy = Automatic
+
+	column Ano
+		formatString: 0
+		lineageTag: 2a97f50c-2c94-4f2e-8d87-77d8f52cee6a
+		summarizeBy: sum
+		isNameInferred
+		sourceColumn: [Ano]
+
+		annotation SummarizationSetBy = Automatic
+
+	column Mês
+		lineageTag: 2b6e0b8a-44a2-405f-9284-229ffd668a4e
+		summarizeBy: none
+		isNameInferred
+		sourceColumn: [Mês]
+
+		annotation SummarizationSetBy = Automatic
+
+	column 'Mês Num'
+		formatString: 0
+		lineageTag: e9363384-9906-4f9e-afe7-b6803d0b62ef
+		summarizeBy: sum
+		isNameInferred
+		sourceColumn: [Mês Num]
+
+		annotation SummarizationSetBy = Automatic
+
+	column 'Semana do Ano'
+		formatString: 0
+		lineageTag: 86cc7222-20fe-427c-9f93-ecde4cf0de0e
+		summarizeBy: sum
+		isNameInferred
+		sourceColumn: [Semana do Ano]
+
+		annotation SummarizationSetBy = Automatic
+
+	partition dCalendario = calculated
+		mode: import
+		source =
+				
+				ADDCOLUMNS(
+				    CALENDARAUTO(),
+				    "Ano", YEAR([Date]),
+				    "Mês", FORMAT([Date], "mmm"),
+				    "Mês Num", MONTH([Date]),
+				    "Semana do Ano", WEEKNUM([Date])
+				)
+
+	annotation PBI_Id = a27b256323f240b3b05c621b6c543810
+

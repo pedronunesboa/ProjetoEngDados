@@ -1,0 +1,24 @@
+relationship 57d65182-f9fe-4228-91cd-9aa60551f174
+	joinOnDateBehavior: datePartOnly
+	fromColumn: 'public volume_metrics'.data_referencia
+	toColumn: LocalDateTable_8d921811-8056-4c49-92e3-84eb5a64a897.Date
+
+relationship e2695fe8-2dd0-42c5-bc49-27e521914ee1
+	joinOnDateBehavior: datePartOnly
+	fromColumn: 'public volume_metrics'.data_coleta
+	toColumn: LocalDateTable_9f5cd3ca-5590-4954-b7d2-3980b754dae9.Date
+
+relationship a6347c46-82cf-95e8-7532-c9015ecd82e9
+	crossFilteringBehavior: bothDirections
+	fromCardinality: one
+	fromColumn: dCalendario.Date
+	toColumn: 'public volume_metrics'.data_coleta
+
+relationship 18d7c1db-f8bf-44bf-9ee0-7496ae48c308
+	fromColumn: 'public gold_agg_noticias_por_dia'.data_particao
+	toColumn: dCalendario.Date
+
+relationship 78fcd19d-27cc-7979-7f97-8c3c27223a54
+	fromColumn: 'public gold_agg_acoes_semanal'.ano
+	toColumn: dCalendario.Date
+

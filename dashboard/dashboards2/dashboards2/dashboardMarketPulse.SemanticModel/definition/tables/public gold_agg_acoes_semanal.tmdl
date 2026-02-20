@@ -1,0 +1,61 @@
+table 'public gold_agg_acoes_semanal'
+	lineageTag: 2a365b53-d93d-49eb-87c1-366a72d6cb64
+
+	column symbol
+		dataType: string
+		lineageTag: a4dbb3fa-0592-4239-825c-682b09301ed2
+		summarizeBy: none
+		sourceColumn: symbol
+
+		annotation SummarizationSetBy = Automatic
+
+	column ano
+		dataType: int64
+		formatString: 0
+		lineageTag: 0ede897d-188b-4e15-9d07-35152ce15789
+		summarizeBy: none
+		sourceColumn: ano
+
+		annotation SummarizationSetBy = Automatic
+
+	column semana
+		dataType: int64
+		formatString: 0
+		lineageTag: 7aaa8412-90a2-473d-9881-d5313712cf78
+		summarizeBy: sum
+		sourceColumn: semana
+
+		annotation SummarizationSetBy = Automatic
+
+	column preco_medio_fechamento_semanal
+		dataType: double
+		lineageTag: 04a44f73-6557-4170-8a1c-2ea77e18d704
+		summarizeBy: sum
+		sourceColumn: preco_medio_fechamento_semanal
+
+		annotation SummarizationSetBy = Automatic
+
+		annotation PBI_FormatHint = {"isGeneralNumber":true}
+
+	column volume_total_semanal
+		dataType: int64
+		formatString: 0
+		lineageTag: 643c8c60-61aa-4458-85b4-a39e50bb1d25
+		summarizeBy: sum
+		sourceColumn: volume_total_semanal
+
+		annotation SummarizationSetBy = Automatic
+
+	partition 'public gold_agg_acoes_semanal' = m
+		mode: import
+		source =
+				let
+				    Fonte = PostgreSQL.Database("localhost:5433", "marketpulse_metadata"),
+				    public_gold_agg_acoes_semanal = Fonte{[Schema="public",Item="gold_agg_acoes_semanal"]}[Data]
+				in
+				    public_gold_agg_acoes_semanal
+
+	annotation PBI_ResultType = Table
+
+	annotation PBI_NavigationStepName = Navegação
+

@@ -1,0 +1,53 @@
+table Medidas
+	lineageTag: 0b3b29dd-fcd6-4cd7-b29b-51fc8dfd95a9
+
+	measure 'Média fechamento' = AVERAGE('public gold_agg_acoes_semanal'[preco_medio_fechamento_semanal])
+		lineageTag: ec6dd2d7-ab02-4d43-b766-dba7f82ecca2
+
+		annotation PBI_FormatHint = {"isGeneralNumber":true}
+
+	measure 'Volume Financeiro Total' = SUM('public gold_agg_acoes_semanal'[volume_total_semanal])
+		formatString: 0
+		lineageTag: 8db20327-b098-4501-81a8-2757d8355156
+
+	measure 'Fechamento Semana Anterior' =
+			
+			CALCULATE(
+			    Medidas[Média fechamento],
+			    DATEADD(dCalendario[Date], -7, DAY
+			))
+		lineageTag: b80b50ad-ab7c-46bb-864d-052af1d2fdfb
+
+		annotation PBI_FormatHint = {"isGeneralNumber":true}
+
+	measure 'Variação Semana (%)' =
+			
+			VAR Atual = Medidas[Média fechamento]
+			VAR Anterior = [Fechamento Semana Anterior]
+			RETURN
+			    IF(
+			        ISBLANK(Anterior),
+			        0,
+			        DIVIDE(Atual - Anterior, Anterior, 0)
+			    )
+		lineageTag: 7c1914dd-14c7-4dd3-b790-ed1e24028058
+
+		annotation PBI_FormatHint = {"isGeneralNumber":true}
+
+	column Column
+		formatString: 0
+		lineageTag: 9057f6f8-be54-481e-af71-09c6a7d9caf2
+		summarizeBy: sum
+		isNameInferred
+		sourceColumn: [Column]
+
+		annotation SummarizationSetBy = Automatic
+
+	partition Medidas = calculated
+		mode: import
+		source = Row("Column", BLANK())
+
+	annotation PBI_Id = fb672807215048879b850fb3dc35cb09
+
+	annotation 436ba87b-9c83-4389-a31b-ebd06a36be98 = {"Expression":""}
+

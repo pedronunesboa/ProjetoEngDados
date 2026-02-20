@@ -31,3 +31,5 @@ marketpulse_project/credentials/
 
 # Dependências (se você as instalasse localmente)
 /requirements.txt.lock
+
+.history/

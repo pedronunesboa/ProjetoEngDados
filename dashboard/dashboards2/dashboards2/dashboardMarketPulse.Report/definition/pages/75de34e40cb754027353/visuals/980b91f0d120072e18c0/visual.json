@@ -1,0 +1,80 @@
+{
+  "$schema": "https://developer.microsoft.com/json-schemas/fabric/item/report/definition/visualContainer/2.5.0/schema.json",
+  "name": "980b91f0d120072e18c0",
+  "position": {
+    "x": 26.600985221674875,
+    "y": 539.11330049261085,
+    "z": 3000,
+    "height": 156.94581280788177,
+    "width": 1228.9655172413793,
+    "tabOrder": 3000
+  },
+  "visual": {
+    "visualType": "tableEx",
+    "query": {
+      "queryState": {
+        "Values": {
+          "projections": [
+            {
+              "field": {
+                "Column": {
+                  "Expression": {
+                    "SourceRef": {
+                      "Entity": "public gold_agg_acoes_semanal"
+                    }
+                  },
+                  "Property": "symbol"
+                }
+              },
+              "queryRef": "public gold_agg_acoes_semanal.symbol",
+              "nativeQueryRef": "symbol"
+            },
+            {
+              "field": {
+                "Measure": {
+                  "Expression": {
+                    "SourceRef": {
+                      "Entity": "Medidas"
+                    }
+                  },
+                  "Property": "Média fechamento"
+                }
+              },
+              "queryRef": "Medidas.Média fechamento",
+              "nativeQueryRef": "Média fechamento"
+            },
+            {
+              "field": {
+                "Measure": {
+                  "Expression": {
+                    "SourceRef": {
+                      "Entity": "Medidas"
+                    }
+                  },
+                  "Property": "Volume Financeiro Total"
+                }
+              },
+              "queryRef": "Medidas.Volume Financeiro Total",
+              "nativeQueryRef": "Volume Financeiro Total"
+            },
+            {
+              "field": {
+                "Measure": {
+                  "Expression": {
+                    "SourceRef": {
+                      "Entity": "Medidas"
+                    }
+                  },
+                  "Property": "Variação Semana (%)"
+                }
+              },
+              "queryRef": "Medidas.Variação Semana (%)",
+              "nativeQueryRef": "Variação Semana (%)"
+            }
+          ]
+        }
+      }
+    },
+    "drillFilterOtherVisuals": true
+  }
+}
